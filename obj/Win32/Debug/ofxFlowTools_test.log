@@ -1,0 +1,6 @@
+﻿F:\Microsoft Visual Studio\VS2017\Common7\IDE\VC\VCTargets\Microsoft.CppBuild.targets(391,5): warning MSB8028: The intermediate directory (obj\Win32\Debug\) contains files shared from another project (ofxFlowTools_example_core.vcxproj).  This can lead to incorrect clean and rebuild behavior.
+  main.cpp
+  ofApp.cpp
+  Info: Boost.Config is older than your compiler version - probably nothing bad will happen - but you may wish to look for an update Boost version.  Define BOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE to suppress this message.
+  Info: Boost.Config is older than your compiler version - probably nothing bad will happen - but you may wish to look for an update Boost version.  Define BOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE to suppress this message.
+  ofxFlowTools_test.vcxproj -> F:\Microsoft Visual Studio\of_v0.11.2_vs2017_release\apps\myApps\ofxFlowTools_test\bin\ofxFlowTools_test_debug.exe
