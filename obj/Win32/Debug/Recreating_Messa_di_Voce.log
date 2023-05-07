@@ -1,0 +1,9 @@
+﻿  ofApp.cpp
+  Info: Boost.Config is older than your compiler version - probably nothing bad will happen - but you may wish to look for an update Boost version.  Define BOOST_CONFIG_SUPPRESS_OUTDATED_MESSAGE to suppress this message.
+f:\microsoft visual studio\of_v0.11.2_vs2017_release\addons\ofxcv\libs\ofxcv\include\ofxcv\tracker.h(326): warning C4018: '<': signed/unsigned mismatch
+f:\microsoft visual studio\of_v0.11.2_vs2017_release\apps\myapps\recreating_messa_di_voce\src\ofapp.cpp(147): warning C4018: '<': signed/unsigned mismatch
+f:\microsoft visual studio\of_v0.11.2_vs2017_release\apps\myapps\recreating_messa_di_voce\src\ofapp.cpp(149): warning C4018: '<': signed/unsigned mismatch
+f:\microsoft visual studio\of_v0.11.2_vs2017_release\apps\myapps\recreating_messa_di_voce\src\ofapp.cpp(159): warning C4018: '<': signed/unsigned mismatch
+f:\microsoft visual studio\of_v0.11.2_vs2017_release\apps\myapps\recreating_messa_di_voce\src\ofapp.cpp(165): warning C4018: '<': signed/unsigned mismatch
+f:\microsoft visual studio\of_v0.11.2_vs2017_release\apps\myapps\recreating_messa_di_voce\src\ofapp.cpp(203): warning C4018: '<': signed/unsigned mismatch
+  Recreating_Messa_di_Voce.vcxproj -> F:\Microsoft Visual Studio\of_v0.11.2_vs2017_release\apps\myApps\Recreating_Messa_di_Voce\bin\Recreating_Messa_di_Voce_debug.exe

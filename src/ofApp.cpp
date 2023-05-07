@@ -2,52 +2,43 @@
 
 //--------------------------------------------------------------
 void ofApp::setup(){
-	/*******************************optical flow****************************************/
-	ofSetVerticalSync(true);
-	ofSetLogLevel(OF_LOG_NOTICE);
-	
-	densityWidth = 1280;
-	densityHeight = 720;
-	simulationWidth = densityWidth;
-	simulationHeight = densityHeight;
-	windowWidth = ofGetWindowWidth();
-	windowHeight = ofGetWindowHeight();
-	// process the average on 1/16 resolution
-	avgWidth = densityWidth / 4;
-	avgHeight = densityHeight / 4;
-	
-	opticalFlow.setup(simulationWidth, simulationHeight);
-	combinedBridgeFlow.setup(simulationWidth, simulationHeight, densityWidth, densityHeight);
-	pixelFlow.setup(avgWidth, avgHeight, FT_VELOCITY);
-	averageFlows.resize(numRegios);
-	for (int i = 0; i < numRegios; i++) {
-		averageFlows[i].setup(avgWidth, avgHeight, FT_VELOCITY);
-		averageFlows[i].setRoi(1.0 / (numRegios + 1.0) * (i + 1), .2, 1.0 / (numRegios + 2.0), .6);
-	}
-	
-	flows.push_back(&opticalFlow);
-	flows.push_back(&combinedBridgeFlow);
-	for (auto& f : averageFlows) { flows.push_back(&f); }
 
-	for (auto flow : flows) { flow->setVisualizationFieldSize(glm::vec2(simulationWidth / 2, simulationHeight / 2)); }
+	/***********************ofxCV*************************/
+	vidGrabber.setVerbose(true);
+	vidGrabber.setup(320, 240);
+	vidGrabber.setDesiredFrameRate(0.1);
 
-	mouseFlows.push_back(&densityMouseFlow);
-	mouseFlows.push_back(&velocityMouseFlow);
-	
-	simpleCam.setup(densityWidth, densityHeight, true);
-	cameraFbo.allocate(densityWidth, densityHeight);
-	ftUtil::zero(cameraFbo);
+	colorImage.allocate(320, 240);
+	grayImage.allocate(320, 240);
+	grayBg.allocate(320, 240);
+	grayDiff.allocate(320, 240);
 
-	lastTime = ofGetElapsedTimef();
-	
-	setupGui();
+	/***********************optical flow*************************/
+	stepSize = 15;
+	ySteps = vidGrabber.getHeight() / stepSize;
+	xSteps = vidGrabber.getWidth() / stepSize;
 
+	gui.setup();
+	gui.add(lkMaxLevel.set("lkMaxLevel", 3, 0, 8));
+	gui.add(lkMaxFeatures.set("lkMaxFeatures", 200, 1, 1000));
+	gui.add(lkQualityLevel.set("lkQualityLevel", 0.1, 0.01, .2));
+	gui.add(lkMinDistance.set("lkMinDistance", 4, 1, 16));
+	gui.add(lkWinSize.set("lkWinSize", 8, 4, 64));
+	gui.add(usefb.set("Use Farneback", true));
+	gui.add(fbPyrScale.set("fbPyrScale", .5, 0, .99));
+	gui.add(fbLevels.set("fbLevels", 4, 1, 8));
+	gui.add(fbIterations.set("fbIterations", 2, 1, 8));
+	gui.add(fbPolyN.set("fbPolyN", 7, 5, 10));
+	gui.add(fbPolySigma.set("fbPolySigma", 1.5, 1.1, 2));
+	gui.add(fbUseGaussian.set("fbUseGaussian", false));
+	gui.add(fbWinSize.set("winSize", 32, 4, 64));
 
+	curFlow = &fb;
 
-	/*******************************Box2d****************************************/
+	/**************************box2d*****************************/
 	//Create a gravity environment
 	box2d.init();
-	box2d.setGravity(0, -45);
+	box2d.setGravity(0, -20);
 	box2d.createGround();
 	box2d.createBounds(ofRectangle(0, 0, ofGetWidth(), ofGetHeight()));
 
@@ -59,176 +50,249 @@ void ofApp::setup(){
 }
 
 //--------------------------------------------------------------
-void ofApp::setupGui() {
-	
-	gui.setup("settings");
-	gui.setDefaultBackgroundColor(ofColor(255, 255, 255, 127));
-	gui.setDefaultFillColor(ofColor(100, 180, 255, 127));
-	gui.add(toggleGuiDraw.set("show gui (G)", true));
-	gui.add(toggleCameraDraw.set("draw camera (C)", true));
-	gui.add(outputWidth.set("output width", 1280, 256, 1920));
-	gui.add(outputHeight.set("output height", 720, 144, 1080));
-	gui.add(simulationScale.set("simulation scale", 2, 1, 4));
-	gui.add(simulationFPS.set("simulation fps", 60, 1, 60));
-	outputWidth.addListener(this, &ofApp::simulationResolutionListener);
-	outputHeight.addListener(this, &ofApp::simulationResolutionListener);
-	simulationScale.addListener(this, &ofApp::simulationResolutionListener);
-	
-	visualizationParameters.setName("visualization");
-	visualizationParameters.add(visualizationMode.set("mode", FLUID_DEN, INPUT_FOR_DEN, FLUID_DEN));
-	visualizationParameters.add(visualizationScale.set("scale", 1, 0.1, 10.0));
-	visualizationParameters.add(toggleVisualizationScalar.set("show scalar", false));
-	visualizationMode.addListener(this, &ofApp::visualizationModeListener);
-	toggleVisualizationScalar.addListener(this, &ofApp::toggleVisualizationScalarListener);
-	visualizationScale.addListener(this, &ofApp::visualizationScaleListener);
-	
-	bool s = true;
-	gui.add(visualizationParameters);
-	for (auto flow : flows) {
-		gui.add(flow->getParameters());
-	}
-
-	if (!ofFile("settings.xml")) { gui.saveToFile("settings.xml"); }	
-	gui.loadFromFile("settings.xml");
-	
-	gui.minimizeAll();
-	toggleGuiDraw = true;
-}
-
-//--------------------------------------------------------------
 void ofApp::update(){
-	/*******************************optical flow****************************************/
-	ofSetFrameRate(simulationFPS);
-	float dt = 1.0 / max(ofGetFrameRate(), 1.f); // more smooth as 'real' deltaTime.
-	
-	simpleCam.update();
-	if (simpleCam.isFrameNew()) {
-		cameraFbo.begin();
-		simpleCam.draw(cameraFbo.getWidth(), 0, -cameraFbo.getWidth(), cameraFbo.getHeight());  // draw flipped
-		cameraFbo.end();
-		
-		opticalFlow.setInput(cameraFbo.getTexture());
-	}
-	
-	opticalFlow.update();
-	
-	combinedBridgeFlow.setVelocity(opticalFlow.getVelocity());
-	combinedBridgeFlow.setDensity(cameraFbo.getTexture());
-	combinedBridgeFlow.update(dt);
+	int t = 0;
 
-	pixelFlow.setInput(opticalFlow.getVelocity());
-	for (auto flow : mouseFlows) { if (flow->didChange() && flow->getType() == FT_VELOCITY) { pixelFlow.addInput(flow->getTexture()); } }
-	pixelFlow.update();
-	for (auto& f : averageFlows) { f.update(pixelFlow.getPixels()); }
+	/******************optical flow******************/
+	if (status == 0) {
+		vidGrabber.update();
+		colorImg = vidGrabber.getPixels();
+		colorImg.mirror(false, true);
+		if (vidGrabber.isFrameNew() && t % 13 == 0) {
+			if (usefb) {
+				curFlow = &fb;
+				fb.setPyramidScale(fbPyrScale);
+				fb.setNumLevels(fbLevels);
+				fb.setWindowSize(fbWinSize);
+				fb.setNumIterations(fbIterations);
+				fb.setPolyN(fbPolyN);
+				fb.setPolySigma(fbPolySigma);
+				fb.setUseGaussian(fbUseGaussian);
+			}
+			else {
+				curFlow = &lk;
+				lk.setMaxFeatures(lkMaxFeatures);
+				lk.setQualityLevel(lkQualityLevel);
+				lk.setMinDistance(lkMinDistance);
+				lk.setWindowSize(lkWinSize);
+				lk.setMaxLevel(lkMaxLevel);
+			}
+			// you can use Flow polymorphically
+			curFlow->calcOpticalFlow(colorImg);
 
+			for (int y = 1; y + 1 < ySteps; y++) {
+				for (int x = 1; x + 1 < xSteps; x++) {
+					ofVec3f position(x * stepSize, y * stepSize, 0.0);
+					ofRectangle area(position - ofVec3f(stepSize, stepSize, 0.0) / 2, stepSize, stepSize);
+					offset = fb.getAverageFlowInRegion(area);
+				}
+			}
+		}
 
-	/*******************************Box2d****************************************/
-	box2d.update();
-		ofVec2f mouse(ofGetMouseX(), ofGetMouseY());
-	float minDis = ofGetMousePressed() ? 300 : 200;
+		//emitting balls according to motions
+		if (offset.y < -0.0002 || offset.y > 0.0002) {
+			if (10 * offset.x < 0.039 && offset.x >0) {
+				if (offset.x > 0) {
+					ofSetColor(235, 123, 128);
+				}
+				else
+				{
+					ofSetColor(95, 185, 190);
+				}
 
-	for (auto &circle : circles) {
-		float dis = mouse.distance(circle->getPosition());
+				auto circle = make_shared < ofxBox2dCircle>();
+				circle->setPhysics(3.0, 0.5, 1.0);
+				circle->setup(box2d.getWorld(), mouseX, mouseY, 10000 * offset.x);
+				circle->addImpulseForce(ofVec2f(mouseX, mouseY), ofVec2f(10000 * offset.x, 10000 * offset.y));
+				circles.push_back(circle);
+			}
+			else
+			{
+				if (offset.x > 0) {
+					ofSetColor(235, 123, 128);
+				}
+				else
+				{
+					ofSetColor(95, 185, 190);
+				}
 
-		if (dis < minDis) {
-			//circle->addRepulsionForce(mouse, 1.2);
-			circle->addImpulseForce(mouse, ofVec2f(3,3));
+				auto circle = make_shared < ofxBox2dCircle>();
+				circle->setPhysics(3.0, 0.5, 1.0);
+				circle->setup(box2d.getWorld(), mouseX, mouseY, 11);
+				circle->addImpulseForce(ofVec2f(mouseX, mouseY), ofVec2f(10000 * offset.x, 10000 * offset.y));
+				circles.push_back(circle);
+			}
+
 		}
 	}
+	/***********************ofxCV************************/
+	else if (status >0) {
+		vidGrabber.update();
+		colorImage = vidGrabber.getPixels();
+		colorImage.mirror(false, true);
+
+		if (vidGrabber.isFrameNew() && t % 13 == 0) {
+			colorImage.setFromPixels(vidGrabber.getPixels());
+			colorImage.mirror(false, true);
+			grayImage = colorImage; // convert our color image to a grayscale image
+			grayDiff.absDiff(grayBg, grayImage);
+			grayDiff.threshold(160);
+			contourFinder.findContours(grayDiff);
+
+			if (status == 2) {
+				lines.clear();
+				edges.clear();
+
+				if (contourFinder.size() > 0) {
+					for (int n = 0; n < contourFinder.size(); n++) {
+						ofPolyline polyline = contourFinder.getPolyline(n);
+						for (int i = 0; i < polyline.size(); i++) {
+							polyline[i].x *= 3;
+							polyline[i].y *= 3;
+						}
+
+						if (polyline.size() > 90)
+						{
+							lines.push_back(polyline);
+						}
+
+						for (int i = 0; i < lines.size(); i++) {
+							ofPolyline poly = lines[i];
+							poly.simplify();
+							//cout << "poly.size=" << poly.size() << "\n";
+							auto edge = make_shared<ofxBox2dEdge>();
+
+							for (int j = 1; j < poly.size(); j = j + 9) {
+								edge->addVertex(poly[j]);
+							}
+
+							edge->create(box2d.getWorld());
+							edges.push_back(edge);
+						}
+					}
+				}
+			}
+		}
+	}
+
+	t++;
+	if (t >= 99) {
+		t = 0;
+	}
+	/*********************box2d**********************/
+	box2d.update();
 }
 
 //--------------------------------------------------------------
 void ofApp::draw(){
-	/*******************************optical flow****************************************/
-	ofClear(0,0);
-	
-	ofPushStyle();
-	if (toggleCameraDraw.get()) {
-		ofEnableBlendMode(OF_BLENDMODE_DISABLED);
-		cameraFbo.draw(0, 0, windowWidth, windowHeight);
-	}
-	
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	switch(visualizationMode.get()) {
-		case INPUT_FOR_DEN:	combinedBridgeFlow.drawInput(0, 0, windowWidth, windowHeight); break;
-		case INPUT_FOR_VEL:	opticalFlow.drawInput(0, 0, windowWidth, windowHeight); break;
-		case FLOW_VEL:		opticalFlow.draw(0, 0, windowWidth, windowHeight); break;
-		case BRIDGE_VEL:	combinedBridgeFlow.drawVelocity(0, 0, windowWidth, windowHeight); break;
-		case BRIDGE_DEN:	combinedBridgeFlow.drawDensity(0, 0, windowWidth, windowHeight); break;
-		case BRIDGE_TMP:	combinedBridgeFlow.drawTemperature(0, 0, windowWidth, windowHeight); break;
-		case BRIDGE_PRS:	break;
-		default: break;
-	}
-	
-	ofEnableBlendMode(OF_BLENDMODE_SUBTRACT);
-	
-	if (toggleGuiDraw) {
-		ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-		drawGui();
-	}
-	ofPopStyle();
 
+	/**********************optical flow**************************/
+	if (status == 0) {
+		ofPushMatrix();
+		//ofTranslate(250, 100);
+		curFlow->draw(0, 0, 960, 720);
+		ofPopMatrix();
+	}
 
-	/*******************************Box2d****************************************/
+	/**************************ofxCV****************************/
+	else if (status >0) {
+		ofSetColor(235, 123, 128);
+		ofPushMatrix();
+		ofScale(3, 3); // scale the image by a factor of 2
+		if (contourFinder.size() > 0) {
+			for (int n = 0; n < contourFinder.size(); n++)
+			{
+				ofPolyline polyline = contourFinder.getPolyline(n);
+				polyline.draw();
+			}
+		}
+		ofPopMatrix();
+	}
+	
+	/*************************box2d************************/
 	for (auto circle : circles) {
 		//instead of "for initialization; condition; increment"
+		ofSetColor(235, 123, 128);
 		ofFill();
 		circle->draw();
 	}
-}
-
-//--------------------------------------------------------------
-void ofApp::drawGui() {
-	guiFPS = (int)(ofGetFrameRate() + 0.5);
-	
-	// calculate minimum fps
-	float deltaTime = ofGetElapsedTimef() - lastTime;
-	lastTime = ofGetElapsedTimef();
-	deltaTimeDeque.push_back(deltaTime);
-	
-	while (deltaTimeDeque.size() > guiFPS.get())
-		deltaTimeDeque.pop_front();
-	
-	float longestTime = 0;
-	for (int i=0; i<(int)deltaTimeDeque.size(); i++){
-		if (deltaTimeDeque[i] > longestTime)
-			longestTime = deltaTimeDeque[i];
-	}
-	
-	guiMinFPS.set(1.0 / longestTime);
-	
-	ofPushStyle();
-	ofEnableBlendMode(OF_BLENDMODE_ALPHA);
-	gui.draw();
-	ofPopStyle();
-}
-
-
-//--------------------------------------------------------------
-void ofApp::simulationResolutionListener(int &_value){
-	densityWidth = outputWidth;
-	densityHeight = outputHeight;
-	simulationWidth = densityWidth / simulationScale;
-	simulationHeight = densityHeight / simulationScale;
-	
-	opticalFlow.resize(simulationWidth, simulationHeight);
-	combinedBridgeFlow.resize(simulationWidth, simulationHeight, densityWidth, densityHeight);
-}
-
-//--------------------------------------------------------------
-void ofApp::mousePressed(int x, int y, int button) {
-
-	/*******************************Box2d****************************************/
-	if (button == 0) {
+	for (auto & edge : edges) {
 		ofSetColor(95, 185, 190);
+		edge->draw();
+	}
+}
+
+//--------------------------------------------------------------
+void ofApp::keyPressed(int key){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::keyReleased(int key){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseMoved(int x, int y ){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseDragged(int x, int y, int button){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mousePressed(int x, int y, int button){
+	if (button == 0) {
+		status = 0; //emitting balls according to motions
+		lines.clear();
+		edges.clear();
+		box2d.setGravity(0, -20);
+	}
+	else if(button == 2){
+		status = 1; //emitting balls when right-clicked
+		lines.clear();
+		edges.clear();
+		box2d.setGravity(0, -20);
+		auto circle = make_shared < ofxBox2dCircle>();
+		circle->setPhysics(3.0, 0.5, 1.0);
+		circle->setup(box2d.getWorld(), mouseX, mouseY, 11);
+		circles.push_back(circle);
 	}
 	else
 	{
-		ofSetColor(235, 123, 128);
+		status = 2; //falling balls
+		box2d.setGravity(0, 20);
 	}
-	auto circle = make_shared < ofxBox2dCircle>();
-	circle->setPhysics(3.0, 0.5, 1.0);
-	circle->setup(box2d.getWorld(), mouseX, mouseY, 11);
-	circles.push_back(circle);
 }
 
+//--------------------------------------------------------------
+void ofApp::mouseReleased(int x, int y, int button){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseEntered(int x, int y){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::mouseExited(int x, int y){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::windowResized(int w, int h){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::gotMessage(ofMessage msg){
+
+}
+
+//--------------------------------------------------------------
+void ofApp::dragEvent(ofDragInfo dragInfo){ 
+
+}
