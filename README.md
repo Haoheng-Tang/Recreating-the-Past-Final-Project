@@ -1,2 +1,2 @@
 # Recreating-the-Past-Final-Project
-Recreating the installation Messa di Voce (2003, London ICA) using openframeworks
+Recreating the installation Messa di Voce (ICA, London, 2023) using openframeworks
